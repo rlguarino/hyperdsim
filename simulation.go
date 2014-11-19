@@ -6,11 +6,16 @@ import(
 	"errors"
 	"math/rand"
 	"time"
+	"sync"
 )
 
 type Result struct{
 	Person Person
 	Workload Workload
+}
+
+func (r Result) String()string{
+	return fmt.Sprintf("<Result %v %s>", r.Person, r.Workload)
 }
 
 type Person struct{
@@ -25,6 +30,11 @@ type Person struct{
 	Semester Semester // The schedule for the semester
 	Assignments []Assignment // The assignment due
 	WorkHours map[Assignment]int // The number of hours worked on assignments.
+}
+
+func (p Person) String() string{
+	return fmt.Sprintf("<Person Vg:%f Gt:%f La:%f Vt:%f P:%f B:%f D:%f",
+		p.Vg, p.Gt, p.La, p.Vt, p.P, p.B, p.D)
 }
 
 type Assignment struct{
@@ -180,24 +190,24 @@ func (p Person) Simulate(results chan Result){
 			}
 		}
 
-		fmt.Printf("Choosing from {%d} choices\n", len(choices))
+		//fmt.Printf("Choosing from {%d} choices\n", len(choices))
 		var choice Workload
 		if len(choices) > 1{
-			fmt.Println(choices)
+			//fmt.Println(choices)
 			choice = choices[rand.Intn(len(choices))]
 		}else{
 			choice = choices[0]
 		}
-		fmt.Printf("[%d]\t%f\t%v\n", p.Semester.Day,maxUtility, choice)
+		//fmt.Printf("[%d]\t%f\t%v\n", p.Semester.Day,maxUtility, choice)
 		if len(choice.Days) > 0 {
 			globalWorkload.Days = append(globalWorkload.Days, choice.Days[0])
 			p.WorkHours[choice.Days[0].Assignment] += choice.Days[0].Hours
 			totalHours += choice.Days[0].Hours
 		}
 	}
-	for assignment, hour := range(p.WorkHours){
-		fmt.Printf("%d : %v\n",hour, assignment)
-	}
+	//for assignment, hour := range(p.WorkHours){
+		//fmt.Printf("%d : %v\n",hour, assignment)
+	//}
 
 	results <- Result{Person:p, Workload:globalWorkload}
 }
@@ -205,26 +215,52 @@ func (p Person) Simulate(results chan Result){
 func main(){
 	fmt.Println("Simulating people... This is most likely not going to work.")
 
-	person := Person{Vg:5, Gt:2, La: 7, Vt: 1, P:1, B:0.5, D:0.9, WorkHours:make(map[Assignment]int)}
-	semester := Semester{Days: 30,Day:0,Weights:make(map[int]float64), Allowed:make(map[int]int)}
-	person.Semester = semester
-	for i := 0; i <= 30; i++{
-		person.Semester.Weights[i] = float64(i)*0.065
-		person.Semester.Allowed[i] = 2
-		if i > 20 {
-			//person.Semester.Weights[i] = float64(i - 20) * 0.75
-			person.Semester.Allowed[i] = 1 
-		}
-	}
+	people := make([]Person, 0)
 	rand.Seed(time.Now().Unix())
-	person.Assignments = make([]Assignment, 0)
-	person.Assignments = append(person.Assignments, Assignment{DateDue:20,TotalGrade: 10})
-	person.Assignments = append(person.Assignments, Assignment{DateDue:30,TotalGrade: 5})
-	person.Semester = semester
 	
-	results := make(chan Result)
-	go person.Simulate(results)
+	for p:=0; p< 30; p++{
+		// Create person
+		person := Person{Vg:5, Gt:2, La: 7, Vt: 1, P:1, B:0.5, D:0.9, WorkHours:make(map[Assignment]int)}
+		semester := Semester{Days: 30,Day:0,Weights:make(map[int]float64), Allowed:make(map[int]int)}
+		person.Semester = semester
+		for i := 0; i <= 30; i++{
+			person.Semester.Weights[i] = float64(i)*0.065
+			person.Semester.Allowed[i] = 2
+			if i > 20 {
+				person.Semester.Allowed[i] = 1
+			}
+		}
 
-	res := <- results
-	fmt.Printf("Results: %v \n\t%v", res.Person, res.Workload)
+		person.Assignments = make([]Assignment, 0)
+		person.Assignments = append(person.Assignments, Assignment{DateDue:20,TotalGrade: 10})
+		person.Assignments = append(person.Assignments, Assignment{DateDue:30,TotalGrade: 5})
+		person.Semester = semester
+
+		people = append(people, person)	
+	}
+
+	results := make(chan Result)
+	go func(people []Person, results chan Result){
+		wg := sync.WaitGroup{}
+		for _,person := range people{
+			wg.Add(1)
+			go func(person Person){
+				defer wg.Done()
+				person.Simulate(results)
+			}(person)
+		}
+		wg.Wait()
+		close(results)
+	}(people, results)
+
+
+
+	for res := range results{
+		res := res
+		fmt.Printf("Results: %v \n\t%v\n", res.Person, res.Workload)
+
+
+	}
+
+
 }
