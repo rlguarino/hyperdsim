@@ -7,6 +7,9 @@ import(
 	"math/rand"
 	"time"
 	"sync"
+	"code.google.com/p/plotinum/plot"
+	"code.google.com/p/plotinum/plotter"
+	"code.google.com/p/plotinum/plotutil"
 )
 
 type Result struct{
@@ -40,10 +43,11 @@ func (p Person) String() string{
 type Assignment struct{
 	TotalGrade int // The total grade units this assignment is graded out of.
 	DateDue int // The date due in numbers of day into the semester
+	Name string
 }
 
 func (a Assignment) String() string{
-	return fmt.Sprintf("<A Total=%d Due=%d>",a.TotalGrade, a.DateDue)
+	return fmt.Sprintf("<A Total=%d Due=%d Name:%s>",a.TotalGrade, a.DateDue, a.Name)
 }
 
 type Semester struct{
@@ -171,8 +175,9 @@ func (p Person) Utility(workload Workload) float64{
 }
 
 func (p Person) Simulate(results chan Result){
-	var globalWorkload Workload 
-	totalHours := 0
+	var globalWorkload Workload
+	globalWorkload.Hours = make(map[Assignment]int)
+
 	for p.Semester.Day < p.Semester.Days {
 		p.Semester.Day += 1
 		maxUtility := float64(-100000)
@@ -190,24 +195,18 @@ func (p Person) Simulate(results chan Result){
 			}
 		}
 
-		//fmt.Printf("Choosing from {%d} choices\n", len(choices))
 		var choice Workload
 		if len(choices) > 1{
-			//fmt.Println(choices)
 			choice = choices[rand.Intn(len(choices))]
 		}else{
 			choice = choices[0]
 		}
-		//fmt.Printf("[%d]\t%f\t%v\n", p.Semester.Day,maxUtility, choice)
 		if len(choice.Days) > 0 {
 			globalWorkload.Days = append(globalWorkload.Days, choice.Days[0])
 			p.WorkHours[choice.Days[0].Assignment] += choice.Days[0].Hours
-			totalHours += choice.Days[0].Hours
+			globalWorkload.Hours[choice.Days[0].Assignment] += choice.Days[0].Hours
 		}
 	}
-	//for assignment, hour := range(p.WorkHours){
-		//fmt.Printf("%d : %v\n",hour, assignment)
-	//}
 
 	results <- Result{Person:p, Workload:globalWorkload}
 }
@@ -218,25 +217,31 @@ func main(){
 	people := make([]Person, 0)
 	rand.Seed(time.Now().Unix())
 	
-	for p:=0; p< 30; p++{
+	assignments := make([]Assignment, 0)
+	assignments = append(assignments, Assignment{DateDue:15,TotalGrade: 10, Name:"Assignment 1"})
+	assignments = append(assignments, Assignment{DateDue:30,TotalGrade: 5, Name:"Assignment 2"})
+	numPeople := 30
+	numDays := 30
+	for p:=0; p< numPeople; p++{
 		// Create person
-		person := Person{Vg:5, Gt:2, La: 7, Vt: 1, P:1, B:0.5, D:0.9, WorkHours:make(map[Assignment]int)}
+		Vg := rand.NormFloat64() * 1 + 5
+		Gt := rand.NormFloat64() * 0.25 + 2
+		B := rand.NormFloat64() * 0.1 + 0.8
+		D := rand.NormFloat64() * 0.2 + 0.8
+		person := Person{Vg:Vg, Gt:Gt, La: 7, Vt: 1, P:1, B:B, D:D, WorkHours:make(map[Assignment]int)}
 		semester := Semester{Days: 30,Day:0,Weights:make(map[int]float64), Allowed:make(map[int]int)}
 		person.Semester = semester
 		for i := 0; i <= 30; i++{
-			person.Semester.Weights[i] = float64(i)*0.065
+			person.Semester.Weights[i] = float64(i)*0.025
 			person.Semester.Allowed[i] = 2
 			if i > 20 {
 				person.Semester.Allowed[i] = 1
 			}
 		}
 
-		person.Assignments = make([]Assignment, 0)
-		person.Assignments = append(person.Assignments, Assignment{DateDue:20,TotalGrade: 10})
-		person.Assignments = append(person.Assignments, Assignment{DateDue:30,TotalGrade: 5})
-		person.Semester = semester
+		person.Assignments = assignments
 
-		people = append(people, person)	
+		people = append(people, person)
 	}
 
 	results := make(chan Result)
@@ -253,14 +258,51 @@ func main(){
 		close(results)
 	}(people, results)
 
+	
+	frequency := make(map[Assignment]plotter.XYs, len(assignments))
+	grades := make(map[Assignment]int)
 
-
+	for _, Assignment := range assignments{
+		frequency[Assignment] = make(plotter.XYs,numDays+1)
+		for i := 0;i <= numDays; i++{
+			frequency[Assignment][i].X = float64(i)
+			frequency[Assignment][i].Y = 0
+		}
+	}
 	for res := range results{
 		res := res
 		fmt.Printf("Results: %v \n\t%v\n", res.Person, res.Workload)
-
-
+		for n,day := range res.Workload.Days{
+			if day.Assignment.TotalGrade != 0{
+				frequency[day.Assignment][n].Y += float64(day.Hours)
+			}
+		}
+		for Assignment, Grade := range res.Workload.Hours{
+			grades[Assignment] = grades[Assignment] + Grade
+		}
 	}
 
+
+
+	p, err := plot.New()
+	if err != nil {
+			panic(err)
+	}
+	p.Title.Text = "Frequency"
+	p.Y.Label.Text = "Heights"
+
+	for assignment,hour := range grades{
+		fmt.Printf("Average %s: %f\n", assignment, float64(hour)/float64(30))
+	}
+
+	for assignment, xys := range frequency{
+	   plotutil.AddLinePoints(p, assignment.Name, xys)
+	}
+	p.Legend.Top = true
+	p.X.Min=0
+	p.X.Max=float64(numDays)
+	if err := p.Save(5, 3, "barchart.png"); err != nil {
+		panic(err)
+	}
 
 }
