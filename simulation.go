@@ -290,13 +290,26 @@ func main(){
 	}
 	p.Title.Text = "Frequency"
 	p.Y.Label.Text = "Heights"
+	p.Add(plotter.NewGrid())
 
 	for assignment,hour := range grades{
 		fmt.Printf("Average %s: %f\n", assignment, float64(hour)/float64(30))
 	}
 
+	i := 0
 	for assignment, xys := range frequency{
-	   plotutil.AddLinePoints(p, assignment.Name, xys)
+		lpline,lppoints, err := plotter.NewLinePoints(xys)
+		if err != nil{
+			panic(err)
+		}
+		lpline.Color = plotutil.Color(i)
+		lpline.Dashes = plotutil.Dashes(i)
+		lppoints.Color = plotutil.Color(i)
+		lppoints.Shape = plotutil.Shape(i)
+		i++
+		p.Add(lpline)
+		p.Add(lppoints)
+		p.Legend.Add(assignment.Name, lpline, lppoints)
 	}
 	p.Legend.Top = true
 	p.X.Min=0
