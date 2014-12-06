@@ -122,7 +122,6 @@ func (p *Person) Workloads() []Workload {
 						for k, v := range(basewl.Hours){
 							wl.Hours[k]=v
 						}
-
 						wl.Hours[assignment] = basewl.Hours[assignment] + t
 						newloads = append(newloads,wl)
 					}
@@ -282,8 +281,6 @@ func main(){
 		}
 	}
 
-
-
 	p, err := plot.New()
 	if err != nil {
 			panic(err)
@@ -293,7 +290,7 @@ func main(){
 	p.Add(plotter.NewGrid())
 
 	for assignment,hour := range grades{
-		fmt.Printf("Average %s: %f\n", assignment, float64(hour)/float64(30))
+		fmt.Printf("Average %s: %f\n", assignment, float64(hour)/float64(numPeople))
 	}
 
 	i := 0
