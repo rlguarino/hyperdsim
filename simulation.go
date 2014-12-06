@@ -217,24 +217,28 @@ func main(){
 	rand.Seed(time.Now().Unix())
 	
 	assignments := make([]Assignment, 0)
-	assignments = append(assignments, Assignment{DateDue:15,TotalGrade: 10, Name:"Assignment 1"})
-	assignments = append(assignments, Assignment{DateDue:30,TotalGrade: 5, Name:"Assignment 2"})
-	numPeople := 30
+	assignments = append(assignments, Assignment{DateDue:30,TotalGrade: 20, Name:"Assignment 1"})
+	assignments = append(assignments, Assignment{DateDue:30,TotalGrade: 20, Name:"Assignment 2"})
+	numPeople := 100
 	numDays := 30
 	for p:=0; p< numPeople; p++{
 		// Create person
-		Vg := rand.NormFloat64() * 1 + 5
+		Vg := rand.NormFloat64() * 1 + 10
 		Gt := rand.NormFloat64() * 0.25 + 2
-		B := rand.NormFloat64() * 0.1 + 0.8
-		D := rand.NormFloat64() * 0.2 + 0.8
+		B := rand.NormFloat64() * 0.2 + 0.5
+		D := rand.NormFloat64() * 0.1 + 0.8
+		if D > 1.0{
+			D = 1
+		}
 		person := Person{Vg:Vg, Gt:Gt, La: 7, Vt: 1, P:1, B:B, D:D, WorkHours:make(map[Assignment]int)}
 		semester := Semester{Days: 30,Day:0,Weights:make(map[int]float64), Allowed:make(map[int]int)}
 		person.Semester = semester
 		for i := 0; i <= 30; i++{
 			person.Semester.Weights[i] = float64(i)*0.025
-			person.Semester.Allowed[i] = 2
-			if i > 20 {
-				person.Semester.Allowed[i] = 1
+			person.Semester.Allowed[i] = 3
+			if i > 25 {
+				person.Semester.Allowed[i] = 2
+				person.Semester.Weights[i] += float64(i)*0.025
 			}
 		}
 
@@ -244,19 +248,33 @@ func main(){
 	}
 
 	results := make(chan Result)
-	go func(people []Person, results chan Result){
-		wg := sync.WaitGroup{}
-		for _,person := range people{
-			wg.Add(1)
-			go func(person Person){
-				defer wg.Done()
+	inChan := make(chan Person)
+
+	numRoutines := 10
+	var wg sync.WaitGroup
+	for i := 0; i < numRoutines; i++{
+		wg.Add(1)
+		go func(people chan Person, results chan Result){
+			for person := range(people){
 				person.Simulate(results)
-			}(person)
-		}
+			}
+			wg.Done()
+		}(inChan, results)
+	}
+
+	//Wait for the channel simulations to finish then close the results chan
+	go func(){
 		wg.Wait()
 		close(results)
-	}(people, results)
+	}()
 
+	// Keep placing people in the channel
+	go func(people []Person, inChan chan Person){
+		for _,person := range people{
+			inChan <- person
+		}
+		close(inChan)
+	}(people, inChan)
 	
 	frequency := make(map[Assignment]plotter.XYs, len(assignments))
 	grades := make(map[Assignment]int)
