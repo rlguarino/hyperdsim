@@ -278,6 +278,12 @@ func main(){
 	
 	frequency := make(map[Assignment]plotter.XYs, len(assignments))
 	grades := make(map[Assignment]int)
+	gradeDistribution := make(plotter.XYs,101)
+	
+	for i := 0;i<= 100;i++{
+		gradeDistribution[i].X = float64(i)
+		gradeDistribution[i].Y = 0
+	}
 
 	for _, Assignment := range assignments{
 		frequency[Assignment] = make(plotter.XYs,numDays+1)
@@ -286,6 +292,7 @@ func main(){
 			frequency[Assignment][i].Y = 0
 		}
 	}
+	z :=0
 	for res := range results{
 		res := res
 		fmt.Printf("Results: %v \n\t%v\n", res.Person, res.Workload)
@@ -295,17 +302,22 @@ func main(){
 			}
 		}
 		for Assignment, Grade := range res.Workload.Hours{
-			grades[Assignment] = grades[Assignment] + Grade
+			if Assignment.Name != ""{ 
+				grade := int((float64(Grade)/(float64(Assignment.TotalGrade))*float64(100)))
+				gradeDistribution[grade].Y = gradeDistribution[grade].Y + float64(1)
+				grades[Assignment] = grades[Assignment] + Grade
+			}
 		}
+		z+=1
 	}
-
-	p, err := plot.New()
+	wt, err := plot.New()
 	if err != nil {
 			panic(err)
 	}
-	p.Title.Text = "Frequency"
-	p.Y.Label.Text = "Heights"
-	p.Add(plotter.NewGrid())
+	wt.Title.Text = "Distribution of work hours vs time."
+	wt.Y.Label.Text = "Work Hours"
+	wt.X.Label.Text = "Time"
+	wt.Add(plotter.NewGrid())
 
 	for assignment,hour := range grades{
 		fmt.Printf("Average %s: %f\n", assignment, float64(hour)/float64(numPeople))
@@ -322,14 +334,50 @@ func main(){
 		lppoints.Color = plotutil.Color(i)
 		lppoints.Shape = plotutil.Shape(i)
 		i++
-		p.Add(lpline)
-		p.Add(lppoints)
-		p.Legend.Add(assignment.Name, lpline, lppoints)
+		wt.Add(lpline)
+		wt.Add(lppoints)
+		wt.Legend.Add(assignment.Name, lpline, lppoints)
 	}
-	p.Legend.Top = true
-	p.X.Min=0
-	p.X.Max=float64(numDays)
-	if err := p.Save(5, 3, "barchart.png"); err != nil {
+	wt.Legend.Top = true
+	wt.X.Min=0
+	wt.X.Max=float64(numDays)
+	if err := wt.Save(5, 3, "workDistribution.png"); err != nil {
+		panic(err)
+	}
+
+	gt, err := plot.New()
+	if err != nil {
+			panic(err)
+	}
+	gt.Title.Text = "Distribution of grades"
+	gt.Y.Label.Text = "Frequency"
+	gt.X.Label.Text = "Grades"
+	gt.Add(plotter.NewGrid())
+
+	h, err := plotter.NewHistogram(gradeDistribution, 10)
+	if err != nil{
+		panic(err)
+	}
+	h.FillColor = plotutil.Color(1)
+	gt.Add(h)
+
+	gt.Legend.Top = true
+	gt.Y.Min=0
+	gt.Y.Tick.Marker = func(min, max float64) []plot.Tick {
+		const suggestedTicks = 3
+		delta := 1
+		for (max-min)/float64(delta) < float64(suggestedTicks) {
+			delta += 10
+		}
+		ticks := make([]plot.Tick, 0)
+		for i := int(min); i<= int(max); i+= delta{
+			ticks = append(ticks, plot.Tick{Value:float64(i),Label:fmt.Sprintf("%d",i)})
+		}
+		return ticks
+	}
+	gt.X.Min=0
+	gt.X.Max=float64(100)
+	if err := gt.Save(5, 3, "gradeDistribution.png"); err != nil {
 		panic(err)
 	}
 
