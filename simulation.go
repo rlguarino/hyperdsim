@@ -7,9 +7,8 @@ import(
 	"math/rand"
 	"time"
 	"sync"
-	"code.google.com/p/plotinum/plot"
-	"code.google.com/p/plotinum/plotter"
-	"code.google.com/p/plotinum/plotutil"
+	"os"
+	"flag"
 )
 
 type Result struct{
@@ -210,14 +209,21 @@ func (p Person) Simulate(results chan Result){
 	results <- Result{Person:p, Workload:globalWorkload}
 }
 
+
+var output string
+func init() {
+	flag.StringVar(&output, "output", "out", "the output prefix")
+}
+
 func main(){
+	flag.Parse()
 	fmt.Println("Simulating people... This is most likely not going to work.")
 
 	people := make([]Person, 0)
 	rand.Seed(time.Now().Unix())
 	
 	assignments := make([]Assignment, 0)
-	assignments = append(assignments, Assignment{DateDue:30,TotalGrade: 20, Name:"Assignment 1"})
+	assignments = append(assignments, Assignment{DateDue:15,TotalGrade: 20, Name:"Assignment 1"})
 	assignments = append(assignments, Assignment{DateDue:30,TotalGrade: 20, Name:"Assignment 2"})
 	numPeople := 100
 	numDays := 30
@@ -225,7 +231,7 @@ func main(){
 		// Create person
 		Vg := rand.NormFloat64() * 1 + 10
 		Gt := rand.NormFloat64() * 0.25 + 2
-		B := rand.NormFloat64() * 0.2 + 0.5
+		B := rand.NormFloat64() * 0.5 + 0.5
 		D := rand.NormFloat64() * 0.1 + 0.8
 		if D > 1.0{
 			D = 1
@@ -234,11 +240,11 @@ func main(){
 		semester := Semester{Days: 30,Day:0,Weights:make(map[int]float64), Allowed:make(map[int]int)}
 		person.Semester = semester
 		for i := 0; i <= 30; i++{
-			person.Semester.Weights[i] = float64(i)*0.025
+			person.Semester.Weights[i] = 2.0 * float64(i)*0.025
 			person.Semester.Allowed[i] = 3
 			if i > 25 {
 				person.Semester.Allowed[i] = 2
-				person.Semester.Weights[i] += float64(i)*0.025
+				person.Semester.Weights[i] += float64(i)*0.050
 			}
 		}
 
@@ -276,109 +282,76 @@ func main(){
 		close(inChan)
 	}(people, inChan)
 	
-	frequency := make(map[Assignment]plotter.XYs, len(assignments))
-	grades := make(map[Assignment]int)
-	gradeDistribution := make(plotter.XYs,101)
-	
-	for i := 0;i<= 100;i++{
-		gradeDistribution[i].X = float64(i)
-		gradeDistribution[i].Y = 0
-	}
 
-	for _, Assignment := range assignments{
-		frequency[Assignment] = make(plotter.XYs,numDays+1)
-		for i := 0;i <= numDays; i++{
-			frequency[Assignment][i].X = float64(i)
-			frequency[Assignment][i].Y = 0
+	gradeDistribution := make(map[Assignment][]int, len(assignments))
+	workDistribution := make(map[Assignment][]int, len(assignments))
+	
+	for _, assignment := range assignments{
+		workDistribution[assignment] = make([]int, numDays)
+		for i:=0; i <numDays; i++{
+			workDistribution[assignment][i] = 0
+		}
+		gradeDistribution[assignment] = make([]int, 51)
+		for i:=0; i <51; i++{
+			gradeDistribution[assignment][i] = 0
 		}
 	}
-	z :=0
+
 	for res := range results{
 		res := res
-		fmt.Printf("Results: %v \n\t%v\n", res.Person, res.Workload)
 		for n,day := range res.Workload.Days{
 			if day.Assignment.TotalGrade != 0{
-				frequency[day.Assignment][n].Y += float64(day.Hours)
+				workDistribution[day.Assignment][n] += day.Hours
 			}
 		}
 		for Assignment, Grade := range res.Workload.Hours{
 			if Assignment.Name != ""{ 
-				grade := int((float64(Grade)/(float64(Assignment.TotalGrade))*float64(100)))
-				gradeDistribution[grade].Y = gradeDistribution[grade].Y + float64(1)
-				grades[Assignment] = grades[Assignment] + Grade
+				grade := int(float64(Grade)/(float64(Assignment.TotalGrade))*float64(50))
+				
+				gradeDistribution[Assignment][grade] += 1
 			}
 		}
-		z+=1
-	}
-	wt, err := plot.New()
-	if err != nil {
-			panic(err)
-	}
-	wt.Title.Text = "Distribution of work hours vs time."
-	wt.Y.Label.Text = "Work Hours"
-	wt.X.Label.Text = "Time"
-	wt.Add(plotter.NewGrid())
-
-	for assignment,hour := range grades{
-		fmt.Printf("Average %s: %f\n", assignment, float64(hour)/float64(numPeople))
 	}
 
-	i := 0
-	for assignment, xys := range frequency{
-		lpline,lppoints, err := plotter.NewLinePoints(xys)
-		if err != nil{
-			panic(err)
-		}
-		lpline.Color = plotutil.Color(i)
-		lpline.Dashes = plotutil.Dashes(i)
-		lppoints.Color = plotutil.Color(i)
-		lppoints.Shape = plotutil.Shape(i)
-		i++
-		wt.Add(lpline)
-		wt.Add(lppoints)
-		wt.Legend.Add(assignment.Name, lpline, lppoints)
-	}
-	wt.Legend.Top = true
-	wt.X.Min=0
-	wt.X.Max=float64(numDays)
-	if err := wt.Save(5, 3, "workDistribution.png"); err != nil {
-		panic(err)
-	}
-
-	gt, err := plot.New()
-	if err != nil {
-			panic(err)
-	}
-	gt.Title.Text = "Distribution of grades"
-	gt.Y.Label.Text = "Frequency"
-	gt.X.Label.Text = "Grades"
-	gt.Add(plotter.NewGrid())
-
-	h, err := plotter.NewHistogram(gradeDistribution, 10)
+	// Output to CSV file
+	wd, err := os.Create(fmt.Sprintf("%s-work.csv",output))
 	if err != nil{
 		panic(err)
 	}
-	h.FillColor = plotutil.Color(1)
-	gt.Add(h)
-
-	gt.Legend.Top = true
-	gt.Y.Min=0
-	gt.Y.Tick.Marker = func(min, max float64) []plot.Tick {
-		const suggestedTicks = 3
-		delta := 1
-		for (max-min)/float64(delta) < float64(suggestedTicks) {
-			delta += 10
-		}
-		ticks := make([]plot.Tick, 0)
-		for i := int(min); i<= int(max); i+= delta{
-			ticks = append(ticks, plot.Tick{Value:float64(i),Label:fmt.Sprintf("%d",i)})
-		}
-		return ticks
+	header := "Day"
+	for _, assignment := range(assignments){
+		header = fmt.Sprintf("%s,%s",header, assignment.Name)
 	}
-	gt.X.Min=0
-	gt.X.Max=float64(100)
-	if err := gt.Save(5, 3, "gradeDistribution.png"); err != nil {
+	header = fmt.Sprintf("%s\n", header)
+	wd.WriteString(header)
+
+	for i:=0;i<numDays;i++{
+		line := fmt.Sprintf("%d",i)
+		split := ","
+		for _, assignment := range(assignments){
+			line = fmt.Sprintf("%s%s%d",line,split, workDistribution[assignment][i])
+		}
+		wd.WriteString(fmt.Sprintf("%s\n", line))
+	}
+
+	// Output grade distribution to CSV file
+	gd, err := os.Create(fmt.Sprintf("%s-grade.csv",output))
+	if err != nil{
 		panic(err)
 	}
+	header = "Grade"
+	for _, assignment := range(assignments){
+		header = fmt.Sprintf("%s,%s",header, assignment.Name)
+	}
+	header = fmt.Sprintf("%s\n", header)
+	gd.WriteString(header)
 
+	for i:=0;i<51;i++{
+		line := fmt.Sprintf("%d",i*2)
+		split := ","
+		for _, assignment := range(assignments){
+			line = fmt.Sprintf("%s%s%d",line,split, gradeDistribution[assignment][i])
+		}
+		gd.WriteString(fmt.Sprintf("%s\n", line))
+	}
 }
